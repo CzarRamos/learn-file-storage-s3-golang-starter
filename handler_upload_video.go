@@ -5,9 +5,11 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"log"
 	"mime"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/auth"
@@ -56,11 +58,11 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		respondWithError(w, http.StatusBadRequest, "Unable to get video file", err)
 		return
 	}
-	mediaType := videoHeader.Header.Get("Content-Type")
+	contentType := videoHeader.Header.Get("Content-Type")
 	defer videoFile.Close()
 
 	// check if valid format (aka video/mp4)
-	detectedMediaType, _, err := mime.ParseMediaType(mediaType)
+	detectedMediaType, _, err := mime.ParseMediaType(contentType)
 	if err != nil {
 		respondWithError(w, http.StatusBadRequest, "Unable to parse media type", err)
 		return
@@ -76,6 +78,8 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		respondWithError(w, http.StatusInternalServerError, "Unable to create temp file", err)
 		return
 	}
+	log.Printf("%s is the newly made temp file name", tempFile.Name())
+
 	// tempFile not needed later on
 	defer os.Remove(tempFile.Name())
 	defer tempFile.Close()
@@ -98,17 +102,44 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		respondWithError(w, http.StatusInternalServerError, "Unable to populate slice with random bytes", err)
 		return
 	}
+
+	aspectRatio, err := getVideoAspectRatio(tempFile.Name())
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Unable to get aspect ratio of video", err)
+		return
+	}
+
+	parts := strings.SplitN(detectedMediaType, "/", 2)
+	if len(parts) != 2 {
+		respondWithError(w, http.StatusInternalServerError, "Incorrect media type detected", err)
+		return
+	}
+	ext := parts[1]
+
 	generatedName := hex.EncodeToString(randomBytes)
 	// saves the thumbnail in our assets folder
-	newFileName := fmt.Sprintf("%s.%s", generatedName, detectedMediaType)
-	// newFilePath := filepath.Join(cfg.assetsRoot, newFileName)
-	// fmt.Printf("New File path made: %s ", newFilePath)
+	newFileName := fmt.Sprintf("%s/%s.%s", aspectRatio, generatedName, ext)
+
+	processedFilepath, err := processVideoForFastStart(tempFile.Name())
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Unable to process video", err)
+		return
+	}
+
+	processedFile, err := os.Open(processedFilepath)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Unable to open processed video", err)
+		return
+	}
+
+	defer os.Remove(processedFilepath)
+	defer processedFile.Close()
 
 	_, err = cfg.s3Client.PutObject(r.Context(), &s3.PutObjectInput{
 		Bucket:      &cfg.s3Bucket,
 		Key:         &newFileName,
-		Body:        tempFile,
-		ContentType: &mediaType,
+		Body:        processedFile,
+		ContentType: &contentType,
 	})
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Unable to upload to AWS bucket", err)
@@ -116,12 +147,22 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 	}
 
 	// update the URL and our database
-	dataURl := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", cfg.s3Bucket, cfg.s3Region, newFileName)
+	dataURl := fmt.Sprintf("%s,%s", cfg.s3Bucket, newFileName)
+	log.Printf("%s is the url of the processed vid", dataURl)
+
 	metadata.VideoURL = &dataURl
 	err = cfg.db.UpdateVideo(metadata)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Unable to update video metadata", err)
 		return
 	}
+
+	signedVid, err := cfg.dbVideoToSignedVideo(metadata)
+	if err != nil {
+		respondWithError(w, http.StatusNotFound, "Couldn't process signed video", err)
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, signedVid)
 
 }
