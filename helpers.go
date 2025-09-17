@@ -2,16 +2,10 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"log"
 	"os/exec"
-	"strings"
-	"time"
-
-	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/database"
 )
 
 type AspectRatio struct {
@@ -42,9 +36,9 @@ func getVideoAspectRatio(filepath string) (string, error) {
 
 	// check aspect ratio
 	if detectedAspectRatio.Streams[0].Width == 16*detectedAspectRatio.Streams[0].Height/9 {
-		return "16:9", nil
+		return "landscape", nil
 	} else if detectedAspectRatio.Streams[0].Height == 16*detectedAspectRatio.Streams[0].Width/9 {
-		return "9:16", nil
+		return "portrait", nil
 	}
 	return "other", nil
 }
@@ -62,33 +56,33 @@ func processVideoForFastStart(filePath string) (string, error) {
 	return outputPath, nil
 }
 
-func generatePresignedURL(s3Client *s3.Client, bucket, key string, expireTime time.Duration) (string, error) {
-	presignClient := s3.NewPresignClient(s3Client)
-	req, err := presignClient.PresignGetObject(context.Background(), &s3.GetObjectInput{
-		Bucket: &bucket,
-		Key:    &key,
-	}, s3.WithPresignExpires(expireTime))
-	if err != nil {
-		return "", err
-	}
+// func generatePresignedURL(s3Client *s3.Client, bucket, key string, expireTime time.Duration) (string, error) {
+// 	presignClient := s3.NewPresignClient(s3Client)
+// 	req, err := presignClient.PresignGetObject(context.Background(), &s3.GetObjectInput{
+// 		Bucket: &bucket,
+// 		Key:    &key,
+// 	}, s3.WithPresignExpires(expireTime))
+// 	if err != nil {
+// 		return "", err
+// 	}
 
-	return req.URL, nil
-}
+// 	return req.URL, nil
+// }
 
-func (cfg *apiConfig) dbVideoToSignedVideo(video database.Video) (database.Video, error) {
-	parts := strings.SplitN(*video.VideoURL, ",", 2)
-	if len(parts) != 2 {
-		return database.Video{}, fmt.Errorf("invalid video_url format")
-	}
+// func (cfg *apiConfig) dbVideoToSignedVideo(video database.Video) (database.Video, error) {
+// 	parts := strings.SplitN(*video.VideoURL, ",", 2)
+// 	if len(parts) != 2 {
+// 		return database.Video{}, fmt.Errorf("invalid video_url format")
+// 	}
 
-	bucket, key := parts[0], parts[1]
-	presignURL, err := generatePresignedURL(cfg.s3Client, bucket, key, time.Minute)
-	if err != nil {
-		log.Print("error: unable to convert db video to signed video")
-		return database.Video{}, err
-	}
+// 	// bucket, key := parts[0], parts[1]
+// 	// presignURL, err := generatePresignedURL(cfg.s3Client, bucket, key, time.Minute)
+// 	// if err != nil {
+// 	// 	log.Print("error: unable to convert db video to signed video")
+// 	// 	return database.Video{}, err
+// 	// }
 
-	video.VideoURL = &presignURL
+// 	// video.VideoURL = &presignURL
 
-	return video, nil
-}
+// 	return video, nil
+// }

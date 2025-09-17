@@ -147,7 +147,7 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 	}
 
 	// update the URL and our database
-	dataURl := fmt.Sprintf("%s,%s", cfg.s3Bucket, newFileName)
+	dataURl := fmt.Sprintf("https://%s/%s", cfg.domainName, newFileName)
 	log.Printf("%s is the url of the processed vid", dataURl)
 
 	metadata.VideoURL = &dataURl
@@ -157,12 +157,12 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	signedVid, err := cfg.dbVideoToSignedVideo(metadata)
-	if err != nil {
-		respondWithError(w, http.StatusNotFound, "Couldn't process signed video", err)
-		return
-	}
+	// signedVid, err := cfg.dbVideoToSignedVideo(metadata)
+	// if err != nil {
+	// 	respondWithError(w, http.StatusNotFound, "Couldn't process signed video", err)
+	// 	return
+	// }
 
-	respondWithJSON(w, http.StatusOK, signedVid)
+	respondWithJSON(w, http.StatusOK, metadata)
 
 }
